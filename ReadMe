@@ -5,3 +5,5 @@
   c) Save Tracks data coming from edges
 3- Convert the ouptup file compatible with the code by using "convert_from_edges.py"
 4- plot trajectories and many histograms by using "bacteria_postProcessor.py"
+
+Matlab files are being used for analyzing simulations. With some changes, "bacteria_postProcessor.py" can be used for analyzing simulations as well.
