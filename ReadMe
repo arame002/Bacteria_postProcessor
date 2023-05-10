@@ -1,0 +1,7 @@
+1- Convert *.mov files to *.avi using "conver_movToAvi.sh"
+2- Use Fiji
+  a) Load *.avi files with Fiji
+  b) Use TrackMate to detect trajectories
+  c) Save Tracks data coming from edges
+3- Convert the ouptup file compatible with the code by using "convert_from_edges.py"
+4- plot trajectories and many histograms by using "bacteria_postProcessor.py"
