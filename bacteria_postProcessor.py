@@ -9,6 +9,7 @@ import trackpy as tp
 from functools import reduce
 from matplotlib.ticker import PercentFormatter
 import matplotlib.gridspec as gridspec
+import random
 
 
 #define functions
@@ -241,12 +242,25 @@ def plot_Trajectory_Panel(particle_data, particle,dir_name ) :
         plt.close('all')
 
 
+def shuffle_Durations(flat_list) :
+    result = []
+    temp_sum = 0
+    for i in range(len(flat_list)):
+        if isinstance(flat_list[i], tuple):
+            temp_sum += flat_list[i][0]
+            result.append(temp_sum)
+            temp_sum = flat_list[i][1]
+        else:
+            temp_sum += flat_list[i]
+            
+    result.append(temp_sum)
+    return result
 
 #Initializations and inputs
 
 # Controlling parameters
 tag = "01mMmal"
-generateTrajectories = True
+generateTrajectories = False
 removeTrajectories = True
 largeWindowMovingAverage = False
 angV_threshold = 20
@@ -277,6 +291,9 @@ all_Particles = {}
 all_Particles_ID = []
 all_filteredParticles = {}
 turnAngle = []
+openBegin = []
+openEnd = []
+openBoth = []
 
 for index in range(1, 8):
     file_name = f"{tag}{index}.txt"
@@ -311,10 +328,9 @@ for index in range(1, 8):
         gap1 = 1
         
         #calculating moving average with a fixed window or with small window but multiple times
-        if largeWindowMovingAverage== True :
-            x_moving_average = moving_average(x, movingAverageGap)
-            y_moving_average = moving_average(y, movingAverageGap)
-        else :
+        x_moving_average = moving_average(x, movingAverageGap)
+        y_moving_average = moving_average(y, movingAverageGap)
+        if largeWindowMovingAverage== False :
             tmpx = x
             tmpy = y
             for i in range(0,movingAverage_Iterator):
@@ -328,6 +344,9 @@ for index in range(1, 8):
 
             x = x_moving_average2
             y = y_moving_average2
+            #x_moving_average = x_moving_average2
+            #y_moving_average = y_moving_average2
+            movingAverageGap = 3
         
         # end of moving average calculations
         # Calculating velocities and other quantities
@@ -469,9 +488,13 @@ for index in range(1, 8):
         # calculate the duration of runs inclucing/excluding the very first and last ones
         if len(events) == 0:
             first_duration = len(tmpAngV)
+            openBoth.append(first_duration * temporalScaling )
         else :
             first_duration = events[0]
-        duration = first_duration - tmpFrame[0]
+            openBegin.append(first_duration * temporalScaling )
+        #duration = first_duration - tmpFrame[0]
+        duration = first_duration
+        
         if duration > filterShortReverses / temporalScaling :
             durations.append(duration)
         for i in range(len(events)-1):
@@ -484,6 +507,7 @@ for index in range(1, 8):
         if len(events) > 0:
             last_duration = len(tmpAngV)
             duration = last_duration - events[-1]
+            openEnd.append(duration * temporalScaling)
             if duration > filterShortReverses / temporalScaling :
                 durations.append(duration)
                 
@@ -531,6 +555,9 @@ runTime_avg = np.mean( runDurations)
 reverseCount = np.array(reverseCount)
 runVelocities = np.array(runVelocities)
 #velocities_after = np.array(velocities_after)
+pairs_BegEnd = list(zip(openBegin, openEnd))
+allCuts = [(pair, c) for pair, c in zip(pairs_BegEnd, openBoth)]
+flat_allCuts = [elem for tup in allCuts for elem in tup]
 
 # Compute histogram and cumulative sum
 runDurationHist, bins = np.histogram(runDurations, bins=20, weights=np.ones(len(runDurations)) / len(runDurations) )
@@ -775,4 +802,25 @@ plt.close('all')
 
 print(len(all_Particles),numberOfFilteredTrajectories)
 
+# Shuffle durations and plot the histogram
+fig, axs = plt.subplots(5, 5, figsize=(15, 15))
+fig.suptitle('Histograms of Shuffled Durations', fontsize=24)
+flat_allCuts_copy = flat_allCuts.copy()
+for i in range(5):
+    for j in range(5):
+        # Shuffle the list
+        random.shuffle(flat_allCuts_copy)
+        result = shuffle_Durations (flat_allCuts_copy)
+        #print(result)
+        result.extend(runDurations)
+        
+        # Plot the histogram
+        axs[i,j].hist(result, weights=np.ones(len(result)) / len(result), bins=20,range=(0, 5) )
+        #axs[i,j].set_ylim ([0,1] )
+        axs[i,j].yaxis.set_major_formatter(PercentFormatter(1))
+        #axs[i, j].set_title(f'Shuffle {5*i+j+1}')
+        
+plt.subplots_adjust(wspace=0.4, hspace=0.4)
+plt.savefig(f"{dir_name}/Shuffle{tag}.png",dpi=300)
+plt.close('all')
 
