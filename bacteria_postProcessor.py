@@ -17,6 +17,8 @@ import random
 # We may want to use third-order Savitzky-Golay filter to detect reversals.
 # It is based on local curvature of the trajectory
 
+# Develope Kolmogorov–Smirnov method to see if we have 2 distributions for turning angles
+
 def calculate_velocity_forward(x, y, dt,gap):
     velocity = np.zeros( math.ceil(len(x) / gap ) - 1 )
     for i in range(0, len(x) - gap, gap):
@@ -211,13 +213,17 @@ def plot_Trajectory_Panel(particle_data, particle,dir_name ) :
         axs[1].set_ylabel("Velocity (µm/s)")
         axs[2].set_xlabel("Angular Velocity  (rad/s)")
         axs[2].set_ylabel("Velocity (µm/s)")
+        traj_vMean = np.mean(velocity_central1)
+        comment = f'vMean={traj_vMean:.3f}'
+        axs[1].annotate(comment, xy=(0.95, 0.95), xycoords='axes fraction',
+                 fontsize=8, ha='right', va='top')
         #creating Legend
         solid = mlines.Line2D([], [], color='black', linestyle='-', label='MA')
         dashed = mlines.Line2D([], [], color='black', linestyle='--', label='Backward Velocity')
         dotted = mlines.Line2D([], [], color='black', linestyle=':', label='Forward Velocity')
         dottedDash = mlines.Line2D([], [], color='black', linestyle='-.', label='MA')
-        axs[1].legend(handles=[solid, dashed, dotted, dottedDash])
-        axs[1].legend(handles=[solid])
+        #axs[1].legend(handles=[solid, dashed, dotted, dottedDash])
+        #axs[1].legend(handles=[solid])
             
         #plot_with_multicolor (np.arange(len(angular_velocity_central1)) * gap1 * temporalScaling, angular_velocity_central1, colorss,axs,2)
         for i in range(gap1,len(angular_velocity_central1) - 1 + gap1):
@@ -242,6 +248,7 @@ def plot_Trajectory_Panel(particle_data, particle,dir_name ) :
         plt.close('all')
 
 
+# Calculate durations as trajectories belong to one bacteria for a long time
 def shuffle_Durations(flat_list) :
     result = []
     temp_sum = 0
@@ -256,12 +263,28 @@ def shuffle_Durations(flat_list) :
     result.append(temp_sum)
     return result
 
+def calculate_Histogram_Mean_STD (data, n_bin):
+
+    # Calculate mean and standard deviation
+    hist, bins = np.histogram(data, bins=n_bin, range=(0, 10), density=True)
+    mean = np.mean(data)
+    std_dev = np.std(data)
+    bin_widths = np.diff(bins)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    weighted_mean = np.sum(hist * bin_centers * bin_widths)
+    weighted_std = np.sqrt(sum(hist * (bin_centers - weighted_mean)**2 * bin_widths) / sum(hist * bin_widths))
+    return mean, std_dev, weighted_mean, weighted_std
+    
+    
+    
+    
 #Initializations and inputs
 
 # Controlling parameters
-tag = "01mMmal"
+tag = "ficol0_"
+numInputFiles = 4
 generateTrajectories = False
-removeTrajectories = True
+removeTrajectories = False
 largeWindowMovingAverage = False
 angV_threshold = 20
 spatialScaling = 340.0/ 1280
@@ -282,6 +305,8 @@ durations = []
 runDurations = []
 runVelocities = []
 reverseCount = []
+trajDuration = []
+trajVelocity = []
 aveVelocities_after = []
 aveVelocities_before = []
 instVelocities_after = []
@@ -293,9 +318,9 @@ all_filteredParticles = {}
 turnAngle = []
 openBegin = []
 openEnd = []
-openBoth = []
+openBoth = []       #Trajectories with no reverse at all
 
-for index in range(1, 8):
+for index in range(1, numInputFiles + 1):
     file_name = f"{tag}{index}.txt"
     dir_name = f"{tag}{index}"
     if not os.path.exists(dir_name):
@@ -453,12 +478,14 @@ for index in range(1, 8):
             tmpV = np.array( [data[6] for data in particle_data] )
             angVelocity_data += [data[7] for data in particle_data]
             tmpAngV = np.array( [data[7] for data in particle_data] )
+            tmpT = np.array( [data[0] for data in particle_data] )
         else :
         #use recursive moving average data short window
             velocity_data += [data[1] for data in particle_data]
             tmpV = np.array( [data[1] for data in particle_data] )
             angVelocity_data += [data[2] for data in particle_data]
             tmpAngV = np.array( [data[2] for data in particle_data] )
+            tmpT = np.array( [data[0] for data in particle_data] )
         
         
         tmpFrame = np.array( [data[5] for data in particle_data] )
@@ -485,6 +512,8 @@ for index in range(1, 8):
         #this command exclude rapid runs
         #events = [events[i] for i in range(len(events)-1) if abs(events[i+1]-events[i]) >= filterShortReverses/ temporalScaling ]
         reverseCount.append( len(events) )
+        trajDuration.append( (tmpT[-1] - tmpT[0]) )
+        trajVelocity.append(np.mean(tmpV) )
         # calculate the duration of runs inclucing/excluding the very first and last ones
         if len(events) == 0:
             first_duration = len(tmpAngV)
@@ -556,8 +585,9 @@ reverseCount = np.array(reverseCount)
 runVelocities = np.array(runVelocities)
 #velocities_after = np.array(velocities_after)
 pairs_BegEnd = list(zip(openBegin, openEnd))
-allCuts = [(pair, c) for pair, c in zip(pairs_BegEnd, openBoth)]
-flat_allCuts = [elem for tup in allCuts for elem in tup]
+allCuts = pairs_BegEnd
+allCuts.extend( openBoth)
+print( len(openBegin),len(openEnd),len(openBoth),len(allCuts))
 
 # Compute histogram and cumulative sum
 runDurationHist, bins = np.histogram(runDurations, bins=20, weights=np.ones(len(runDurations)) / len(runDurations) )
@@ -567,7 +597,7 @@ cumulativeRunDurations = np.cumsum(runDurationHist[::-1])[::-1]
 endPointsX_shifted = []
 endPointsY_shifted = []
 fig, ax = plt.subplots()
-cmap = plt.cm.get_cmap('viridis', len(all_Particles) )
+cmap = plt.cm.get_cmap('tab20' )
 for index, (particle, particle_data) in enumerate(all_Particles.items()):
 
     times = [d[0] for d in particle_data]
@@ -579,7 +609,7 @@ for index, (particle, particle_data) in enumerate(all_Particles.items()):
     y_shifted = y - y[0]
     endPointsX_shifted.append(x_shifted[-1] )
     endPointsY_shifted.append(y_shifted[-1] )
-    color = cmap(index)
+    color = cmap(index % cmap.N)
     ax.plot(x_shifted, y_shifted,color=color)
     #ax.plot(x_shifted, y_shifted)
     
@@ -590,20 +620,6 @@ comment = f'#Trajectories={len(all_Particles):.0f}'
 ax.annotate(comment, xy=(0.95, 0.95), xycoords='axes fraction',
             fontsize=8, ha='right', va='top')
 plt.savefig(f"{dir_name}/Trajectories{tag}.png",dpi=300)
-plt.close('all')
-
-# Scatter plot of final locations in one figure
-msd = sum(xi**2 + yi**2 for xi, yi in zip(endPointsX_shifted, endPointsY_shifted) )/ len(endPointsX_shifted)
-fig, ax = plt.subplots()
-color = cmap(range(len(endPointsX_shifted)))
-ax.scatter(endPointsX_shifted, endPointsY_shifted , color=color, s=3)
-ax.set_aspect("equal", "box")
-ax.set_xlabel("X-coordinate (µm)")
-ax.set_ylabel("Y-coordinate (µm)")
-comment = f'MSD={msd:.2f}'
-ax.annotate(comment, xy=(0.95, 0.95), xycoords='axes fraction',
-            fontsize=8, ha='right', va='top')
-plt.savefig(f"{dir_name}/Scatter_FinalDisplacement{tag}.png",dpi=300)
 plt.close('all')
 
 # create a figure with multiple subplots( mostly histograms)
@@ -690,33 +706,7 @@ axs[2,0].set_xticklabels(labels, rotation=90)
 axs[2,0].set_xlabel('Angle (degrees)')
 axs[2,0].set_ylabel('Relative final location')
 
-"""
-# Plots the average velocities before&after reverses. ( no longer here)
-cmap = plt.cm.get_cmap('viridis', len(aveVelocities_before) )
-for i, row in enumerate(aveVelocities_before):
-    if row:  # check if row is not empty
-        color = cmap(i)
-        x = [-x*temporalScaling for x in range(len(row))]
-        axs[2,1].plot(x, row, alpha=0.75,color=color)
-        axs[2,1].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
-        #print(len(x),len(row),x[0],row)
-        
-#print(len(velocities_after),len(velocities_after[1]) )
-for i, row in enumerate(aveVelocities_after):
-        if row:  # check if row is not empty
-            color = cmap(i)
-            x = [x*temporalScaling for x in range(len(row))]
-            axs[2,1].plot(x, row, alpha=0.75,color=color)
-            axs[2,1].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
-            #print(len(x),len(row),x[0],row)
-        
 
-ticks = axs[2,1].get_xticks()
-axs[2,1].set_xticks(ticks)
-#ax_combined.set_xticklabels(['{}'.format(int(tick)) for tick in ticks])
-axs[2,1].set_xlabel("Time (s)")
-axs[2,1].set_ylabel("Average Velocity (µm/s)")
-"""
 # histogram of turning angles of the reverses( events).
 #Remembrer that there is an event if angular velocity is high. Therefore no data for low turning angles
 axs[2,1].hist(turnAngle, weights=np.ones(len(turnAngle)) / len(turnAngle), bins=20)
@@ -739,17 +729,20 @@ plt.close('all')
 #plot instantaneous and average velocities before and after events
 fig, axs = plt.subplots(2, 1, figsize=(10, 10))
 
-cmap = plt.cm.get_cmap('viridis', len(instVelocities_before) )
+#cmap = plt.cm.get_cmap('viridis', len(instVelocities_before) )
+cmap = plt.cm.get_cmap('tab20' )
 for i, row in enumerate(instVelocities_before):
     if row:  # check if row is not empty
-        color = cmap(i)
+        #color = cmap(i)
+        color = cmap(i % cmap.N)
         x = [-x*temporalScaling for x in range(len(row))]
         axs[0].plot(x, row, alpha=0.75,color=color)
         axs[0].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
         
 for i, row in enumerate(instVelocities_after):
         if row:  # check if row is not empty
-            color = cmap(i)
+            #color = cmap(i)
+            color = cmap(i % cmap.N)
             x = [x*temporalScaling for x in range(len(row))]
             axs[0].plot(x, row, alpha=0.75,color=color)
             axs[0].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
@@ -764,7 +757,8 @@ axs[0].set_ylabel("Instantaneous Velocity (µm/s)")
 
 for i, row in enumerate(aveVelocities_before):
     if row:  # check if row is not empty
-        color = cmap(i)
+        #color = cmap(i)
+        color = cmap(i % cmap.N)
         x = [-x*temporalScaling for x in range(len(row))]
         axs[1].plot(x, row, alpha=0.75,color=color)
         axs[1].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
@@ -772,7 +766,8 @@ for i, row in enumerate(aveVelocities_before):
         
 for i, row in enumerate(aveVelocities_after):
         if row:  # check if row is not empty
-            color = cmap(i)
+            #color = cmap(i)
+            color = cmap(i % cmap.N)
             x = [x*temporalScaling for x in range(len(row))]
             axs[1].plot(x, row, alpha=0.75,color=color)
             axs[1].text(x[-1], row[-1], str(i), va='center', ha='left', fontsize=3)
@@ -805,22 +800,77 @@ print(len(all_Particles),numberOfFilteredTrajectories)
 # Shuffle durations and plot the histogram
 fig, axs = plt.subplots(5, 5, figsize=(15, 15))
 fig.suptitle('Histograms of Shuffled Durations', fontsize=24)
-flat_allCuts_copy = flat_allCuts.copy()
+allCuts_copy = allCuts.copy()
 for i in range(5):
     for j in range(5):
         # Shuffle the list
-        random.shuffle(flat_allCuts_copy)
-        result = shuffle_Durations (flat_allCuts_copy)
-        #print(result)
+        random.shuffle(allCuts_copy)
+        result = shuffle_Durations (allCuts_copy)
         result.extend(runDurations)
         
-        # Plot the histogram
-        axs[i,j].hist(result, weights=np.ones(len(result)) / len(result), bins=20,range=(0, 5) )
+        # Plot the histogram with frequency instead of counts
+        axs[i,j].hist(result, weights=np.ones(len(result)) / len(result), bins=20,range=(0, 10) )
         #axs[i,j].set_ylim ([0,1] )
+        #convert frequency to percentage
         axs[i,j].yaxis.set_major_formatter(PercentFormatter(1))
-        #axs[i, j].set_title(f'Shuffle {5*i+j+1}')
+        
+        
+        mean, std_dev, weighted_mean  , weighted_std  = calculate_Histogram_Mean_STD( result, 20)
+
+        axs[i,j].annotate(r'$\mu=%.2f$' % mean, xy=(0.95, 0.95), xycoords='axes fraction',
+            fontsize=8, ha='right', va='top')
+        axs[i,j].annotate(r'$\sigma=%.2f$' % std_dev, xy=(0.95, 0.85), xycoords='axes fraction',
+            fontsize=8, ha='right', va='top')
+        axs[i,j].annotate(r'$\mu_w=%.2f$' % weighted_mean, xy=(0.95, 0.75), xycoords='axes fraction', fontsize=8, ha='right', va='top')
+        axs[i,j].annotate(r'$\sigma_w=%.2f$' % weighted_std, xy=(0.95, 0.65), xycoords='axes fraction', fontsize=8, ha='right', va='top')
+        axs[i,j].annotate(r'$\#=%.0f$' % len(result), xy=(0.95, 0.55), xycoords='axes fraction', fontsize=8, ha='right', va='top')
         
 plt.subplots_adjust(wspace=0.4, hspace=0.4)
 plt.savefig(f"{dir_name}/Shuffle{tag}.png",dpi=300)
 plt.close('all')
+
+fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+#fig, ax = plt.subplots()
+cmap = plt.cm.get_cmap('tab20' )
+for index, (particle, particle_data) in enumerate(all_Particles.items()):
+
+    times = [d[0] for d in particle_data]
+    v = [d[1] for d in particle_data] #d[8] for x_moving_average
+    w = [d[2] for d in particle_data] #d[9] for x_moving_average
+    color = cmap(index % cmap.N)
+    axs[0,0].scatter(w, v,color=color, s=2, alpha=0.5,edgecolors='none')
+    
+#ax.set_aspect("equal", "box")
+axs[0,0].set_xlabel("Angular Velocity (rad/s)",fontsize = 14)
+axs[0,0].set_ylabel("Velocity (µm/s)", fontsize = 14)
+comment = f'#Trajectories={len(all_Particles):.0f}'
+axs[0,0].annotate(comment, xy=(0.95, 0.95), xycoords='axes fraction',
+            fontsize=14, ha='right', va='top')
+            
+            
+#for i in range(len(reverseCount) ):
+cmap = plt.cm.get_cmap('tab20' )
+indices = np.arange(len(endPointsX_shifted))
+color = cmap(np.linspace(0,1,len(reverseCount) ) )
+axs[0,1].scatter(trajDuration,reverseCount,c=indices,cmap=cmap, s=10, alpha=1.0,edgecolors='none')
+axs[0,1].set_xlabel("Trajectory Duration (s)",fontsize = 14)
+axs[0,1].set_ylabel("# Reverses",fontsize = 14)
+
+axs[1,1].scatter(trajVelocity,reverseCount,c=indices,cmap=cmap, s=10, alpha=1.0,edgecolors='none')
+axs[1,1].set_xlabel("Trajectory Velocity (µm/s)",fontsize = 14)
+axs[1,1].set_ylabel("# Reverses",fontsize = 14)
+
+# Scatter plot of final locations in one figure
+msd = sum(xi**2 + yi**2 for xi, yi in zip(endPointsX_shifted, endPointsY_shifted) )/ len(endPointsX_shifted)
+axs[1,0].scatter(endPointsX_shifted, endPointsY_shifted , c=indices ,cmap=cmap, s=10,edgecolors='none')
+axs[1,0].set_aspect("equal", "box")
+axs[1,0].set_xlabel("X-coordinate (µm)",fontsize = 14)
+axs[1,0].set_ylabel("Y-coordinate (µm)",fontsize = 14)
+comment = f'MSD={msd:.2f}'
+axs[1,0].annotate(comment, xy=(0.95, 0.95), xycoords='axes fraction',
+            fontsize=14, ha='right', va='top')
+
+plt.savefig(f"{dir_name}/Scatters_{tag}.png",dpi=600)
+plt.close('all')
+
 
