@@ -506,7 +506,7 @@ for index in range(1, numInputFiles + 1):
             new_events.insert(0,events[0])
             curAngle += tmpAngV[ events[0] ] * temporalScaling
             turnAngle.append( curAngle)
-            print( new_events,'\t', events)
+            #print( new_events,'\t', events)
             events = new_events
         
         #this command exclude rapid runs
@@ -786,7 +786,7 @@ plt.close('all')
 
 
 # plot filtered trajectories and save them in the related folder
-directory = "./filteredTrajectories"
+directory = f"./{tag}filteredTrajectories"
 if not os.path.exists(directory):
     os.makedirs(directory)
     
