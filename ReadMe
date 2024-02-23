@@ -1,3 +1,6 @@
+** Run bacteria_postProcessor.ipynb file for a sample file.
+It clean up data of trajectories and plot trajectories and velocities.
+
 1- Convert *.mov files to *.avi using "conver_movToAvi.sh"
 2- Use Fiji
   a) Load *.avi files with Fiji
